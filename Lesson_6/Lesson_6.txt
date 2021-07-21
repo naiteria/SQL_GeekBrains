@@ -1,0 +1,44 @@
+____________________________________________________________________________________________________________
+2. Пусть задан некоторый пользователь. 
+Из всех друзей этого пользователя найдите человека, который больше всех общался с нашим пользователем.
+____________________________________________________________________________________________________________
+
+SELECT COUNT(*) 'text', 
+best_friends_id,
+(SELECT  firstname FROM vk.users WHERE id = best_friends_id) as friend_firstname,
+(SELECT  lastname FROM vk.users WHERE id = best_friends_id) as friend_laststname
+ FROM
+(SELECT id, from_users_id AS best_friends_id FROM messages WHERE to_users_id = 39
+UNION SELECT id, to_users_id AS best_friends_id FROM messages WHERE from_users_id = 39) AS FRIEND
+GROUP BY best_friends_id
+ORDER BY text DESC
+LIMIT 1
+
+____________________________________________________________________________________________________________
+3. Подсчитать общее количество лайков, которые получили 10 самых молодых пользователей.
+____________________________________________________________________________________________________________
+
+SELECT COUNT(media_id), COUNT(posts_id), COUNT(messages_id) FROM likes 
+WHERE users_id IN (SELECT * FROM (
+SELECT users_id FROM 
+profiles 
+ORDER BY birthday DESC 
+LIMIT 10) as count)
+
+____________________________________________________________________________________________________________
+4. Определить кто больше поставил лайков (всего) - мужчины или женщины?
+____________________________________________________________________________________________________________
+
+Определить кто больше поставил лайков (всего) - мужчины или женщины?
+SELECT COUNT(*) AS likes, gender FROM likes, profiles
+WHERE likes.users_id = profiles.users_id
+GROUP BY gender
+
+____________________________________________________________________________________________________________
+5. Найти 10 пользователей, которые проявляют наименьшую активность в использовании социальной сети.
+____________________________________________________________________________________________________________
+
+SELECT from_users_id, COUNT(*) AS active
+FROM messages
+GROUP BY from_users_id
+ORDER BY active LIMIT 10
