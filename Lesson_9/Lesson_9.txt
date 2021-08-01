@@ -1,0 +1,185 @@
+___________________________________________________________________________________________________________________
+1. В базе данных shop и sample присутствуют одни и те же таблицы, учебной базы данных. 
+Переместите запись id = 1 из таблицы shop.users в таблицу sample.users. Используйте транзакции.
+___________________________________________________________________________________________________________________
+
+START TRANSACTION;
+INSERT INTO sample.users SELECT * FROM shop.users WHERE shop.users.id = 1;
+DELETE FROM shop.users WHERE shop.users.id = 1;
+COMMIT;
+
+___________________________________________________________________________________________________________________
+2. Создайте представление, которое выводит название name товарной позиции из таблицы products 
+и соответствующее название каталога name из таблицы catalogs.
+___________________________________________________________________________________________________________________
+
+CREATE VIEW prod_name AS 
+SELECT 
+	p.name `Product Name`, 
+    IF(c.name is NOT NULL, c.name, 'Неопределеная позиция каталога') `Catalog Name` 
+FROM 
+	products p LEFT JOIN catalogs c
+	ON p.catalog_id = c.id
+
+-- вызов предтавления
+SELECT * FROM prod_name
+
+___________________________________________________________________________________________________________________
+3. (по желанию) Пусть имеется таблица с календарным полем created_at. В ней размещены разряженые календарные записи
+за август 2018 года '2018-08-01', '2016-08-04', '2018-08-16' и 2018-08-17. Составьте запрос, 
+который выводит полный список дат за август, выставляя в соседнем поле значение 1, 
+если дата присутствует в исходном таблице и 0, если она отсутствует.
+___________________________________________________________________________________________________________________
+
+-- устанавливаем стартовое значение переменной @august_day
+SET @august_day := STR_TO_DATE('31-07-2020', '%d-%m-%Y');
+-- основной запрос. Условие корректной работы данного запроса является наличие более 31 записи в таблице orders  
+-- (вместо orders можно использовать любую другую, удовлетворяющие этому условию).
+SELECT 
+	@august_day := ADDDATE(@august_day, 1) AS `Date`, 
+    IF(@august_day in (SELECT DATE(created_at) FROM products), 1, 0) AS `Exist` 
+FROM orders o HAVING  @august_day < DATE('2020-09-01');
+
+___________________________________________________________________________________________________________________
+4. (по желанию) Пусть имеется любая таблица с календарным полем created_at. Создайте запрос, 
+который удаляет устаревшие записи из таблицы, оставляя только 5 самых свежих записей.
+___________________________________________________________________________________________________________________
+
+-- вспомогательный запрос
+SELECT * FROM shop.products
+WHERE 
+	created_at < (SELECT MIN(created_at) FROM 
+					(SELECT created_at FROM shop.products ORDER BY created_at DESC LIMIT 5) as t1);
+-- основной запрос
+DELETE FROM shop.products
+WHERE 
+	created_at < (SELECT MIN(created_at) FROM 
+					(SELECT created_at FROM shop.products ORDER BY created_at DESC LIMIT 5) as t1);
+-- проверочный запрос
+SELECT * FROM shop.products
+
+___________________________________________________________________________________________________________________
+5. Создайте хранимую функцию hello(), которая будет возвращать приветствие, в зависимости от текущего времени суток. 
+С 6:00 до 12:00 функция должна возвращать фразу "Доброе утро", с 12:00 до 18:00 функция должна возвращать 
+фразу "Добрый день", с 18:00 до 00:00 — "Добрый вечер", с 00:00 до 6:00 — "Доброй ночи".
+___________________________________________________________________________________________________________________
+
+-- скрипт для создания хранимой процедуры
+CREATE DEFINER=`root`@`localhost` PROCEDURE `hello`()
+BEGIN
+	SET @dt := TIME(NOW());
+	SELECT 
+		CASE 
+			WHEN @dt BETWEEN '06:00' AND '12:00' THEN 'Доброе утро' 
+			WHEN @dt BETWEEN '12:00' AND '18:00' THEN 'Добрый день'
+			WHEN @dt BETWEEN '18:00' AND '00:00' THEN 'Добрый вечер'
+			WHEN @dt BETWEEN '00:00' AND '06:00' THEN 'Доброй ночи'
+		  END;
+END;
+
+-- DDL скрипт по созданию хранимой процедуры
+USE `shop`;
+DROP procedure IF EXISTS `shop`.`hello`;
+;
+
+DELIMITER $$
+USE `shop`$$
+CREATE DEFINER=`root`@`localhost` PROCEDURE `hello`()
+BEGIN
+	SET @dt := TIME(NOW());
+	SELECT
+		CASE 
+			WHEN @dt BETWEEN '06:00' AND '12:00' THEN 'Доброе утро' 
+			WHEN @dt BETWEEN '12:00' AND '18:00' THEN 'Добрый день'
+			WHEN @dt BETWEEN '18:00' AND '00:00' THEN 'Добрый вечер'
+			WHEN @dt BETWEEN '00:00' AND '06:00' THEN 'Доброй ночи'
+		  END;
+END$$
+
+DELIMITER ;
+;
+-- вызов хранимой процедуры
+CALL hello()
+
+___________________________________________________________________________________________________________________
+6. В таблице products есть два текстовых поля: name с названием товара и description с его описанием. 
+Допустимо присутствие обоих полей или одно из них. Ситуация, когда оба поля принимают неопределенное значение NULL 
+неприемлема. Используя триггеры, добейтесь того, чтобы одно из этих полей или оба поля были заполнены. 
+При попытке присвоить полям NULL-значение необходимо отменить операцию.
+___________________________________________________________________________________________________________________
+
+-- DDL скрипт для создания триггеров на вставку и на обновление записей
+-- триггер на вставку BEFORE INSERT
+DROP TRIGGER IF EXISTS `shop`.`products_BEFORE_INSERT`;
+
+DELIMITER $$
+USE `shop`$$
+CREATE DEFINER = CURRENT_USER TRIGGER `shop`.`products_BEFORE_INSERT` BEFORE INSERT ON `products` FOR EACH ROW
+BEGIN
+IF (NEW.name IS NULL) AND (NEW.description IS NULL) THEN
+	SIGNAL SQLSTATE '45001' SET MESSAGE_TEXT = 'Field `name` and `description` can not be NULL at the same time';
+END IF;
+END$$
+DELIMITER ;
+
+-- триггер на обновление записей BEFORE UPDATE
+DROP TRIGGER IF EXISTS `shop`.`products_BEFORE_UPDATE`;
+
+DELIMITER $$
+USE `shop`$$
+
+CREATE DEFINER = CURRENT_USER TRIGGER `shop`.`products_BEFORE_UPDATE` BEFORE UPDATE ON `products` FOR EACH ROW
+BEGIN
+IF (NEW.name IS NULL) AND (NEW.description IS NULL) THEN
+	SIGNAL SQLSTATE '45001' SET MESSAGE_TEXT = 'Field `name` and `description` can not be NULL at the same time';
+END IF;
+END$$
+DELIMITER ;
+
+__________________________________________________________________________________________________________________
+7. (по желанию) Напишите хранимую функцию для вычисления произвольного числа Фибоначчи. Числами Фибоначчи 
+называется последовательность в которой число равно сумме двух предыдущих чисел. 
+Вызов функции FIBONACCI(10) должен возвращать число 55.
+__________________________________________________________________________________________________________________
+
+-- DDL скрипт для создания функции FIBONACCI
+USE `shop`;
+DROP function IF EXISTS `FIBONACCI`;
+
+USE `shop`;
+DROP function IF EXISTS `shop`.`FIBONACCI`;
+;
+
+DELIMITER $$
+USE `shop`$$
+CREATE DEFINER=`root`@`localhost` FUNCTION `FIBONACCI`(pos INT) RETURNS int
+    DETERMINISTIC
+BEGIN
+	DECLARE i INT DEFAULT 2;
+	DECLARE f INT DEFAULT 1;
+	DECLARE prev_f INT DEFAULT 0;
+    DECLARE f1 INT;
+	-- базовые случаи
+	IF pos = 0 THEN 
+		RETURN 0;
+	END IF;
+	IF pos = 1 THEN
+		RETURN 1;
+	END IF;
+	-- основной цикл
+	WHILE i <= pos DO
+		SET f1 = f;
+		SET f = f + prev_f;
+		SET prev_f = f1;
+        SET i = i + 1;
+	END WHILE;
+
+	RETURN f;
+END$$
+
+DELIMITER ;
+;
+
+-- проверка
+select shop.FIBONACCI(10);
+
